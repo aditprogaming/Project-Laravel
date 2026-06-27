@@ -41,7 +41,103 @@ class PortivaController extends Controller
             return redirect('/')->with('error', 'Silakan login terlebih dahulu.');
         }
 
-        return view('portiva.templates');
+        $templates = $this->getTemplateOptions();
+
+        return view('portiva.templates', compact('templates'));
+    }
+
+    public function storeTemplate(Request $request)
+    {
+        if (!Session::has('user') && !Session::has('admin')) {
+            return redirect('/')->with('error', 'Silakan login terlebih dahulu.');
+        }
+
+        if (!Session::has('admin')) {
+            return redirect('/template')->with('error', 'Hanya admin yang dapat menambahkan template.');
+        }
+
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $templates = $this->getTemplateOptions();
+        $templates[] = [
+            'id' => $this->nextTemplateId($templates),
+            'name' => $data['name'],
+        ];
+
+        Session::put('admin_templates', $templates);
+
+        return redirect('/template')->with('success', 'Template berhasil ditambahkan.');
+    }
+
+    public function updateTemplate(Request $request, $id)
+    {
+        if (!Session::has('user') && !Session::has('admin')) {
+            return redirect('/')->with('error', 'Silakan login terlebih dahulu.');
+        }
+
+        if (!Session::has('admin')) {
+            return redirect('/template')->with('error', 'Hanya admin yang dapat mengedit template.');
+        }
+
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $templates = $this->getTemplateOptions();
+        foreach ($templates as &$template) {
+            if ((int) ($template['id'] ?? 0) === (int) $id) {
+                $template['name'] = $data['name'];
+                break;
+            }
+        }
+
+        Session::put('admin_templates', $templates);
+
+        return redirect('/template')->with('success', 'Template berhasil diperbarui.');
+    }
+
+    public function destroyTemplate($id)
+    {
+        if (!Session::has('user') && !Session::has('admin')) {
+            return redirect('/')->with('error', 'Silakan login terlebih dahulu.');
+        }
+
+        if (!Session::has('admin')) {
+            return redirect('/template')->with('error', 'Hanya admin yang dapat menghapus template.');
+        }
+
+        $templates = $this->getTemplateOptions();
+        $templates = array_values(array_filter($templates, static function ($template) use ($id) {
+            return (int) ($template['id'] ?? 0) !== (int) $id;
+        }));
+
+        Session::put('admin_templates', $templates);
+
+        return redirect('/template')->with('success', 'Template berhasil dihapus.');
+    }
+
+    private function getTemplateOptions(): array
+    {
+        $templates = Session::get('admin_templates');
+
+        if (empty($templates)) {
+            return [
+                ['id' => 1, 'name' => 'Model 1'],
+                ['id' => 2, 'name' => 'Model 2'],
+                ['id' => 3, 'name' => 'Model 3'],
+            ];
+        }
+
+        return array_values($templates);
+    }
+
+    private function nextTemplateId(array $templates): int
+    {
+        $ids = array_map(static fn ($template) => (int) ($template['id'] ?? 0), $templates);
+
+        return empty($ids) ? 1 : max($ids) + 1;
     }
 
     public function portfolio(Request $request)
@@ -272,8 +368,33 @@ class PortivaController extends Controller
             return redirect('/')->with('error', 'Pengguna tidak ditemukan.');
         }
 
-        // Hapus semua portfolio milik user beserta file fotonya
-        $portfolios = Portfolio::where('user_id', $userId)->get();
+        $this->deleteUserData($user);
+
+        // Logout
+        Session::flush();
+
+        return redirect('/')->with('success', 'Akun berhasil dihapus permanen.');
+    }
+
+    public function deleteAccountByAdmin($id)
+    {
+        if (!Session::has('admin')) {
+            return redirect('/akun')->with('error', 'Hanya admin yang dapat menghapus akun pengguna.');
+        }
+
+        $user = User::find($id);
+        if (!$user) {
+            return redirect('/akun')->with('error', 'Pengguna tidak ditemukan.');
+        }
+
+        $this->deleteUserData($user);
+
+        return redirect('/akun')->with('success', 'Akun pengguna berhasil dihapus permanen.');
+    }
+
+    private function deleteUserData(User $user): void
+    {
+        $portfolios = Portfolio::where('user_id', $user->id)->get();
         foreach ($portfolios as $p) {
             if (!empty($p->photo) && Storage::disk('public')->exists($p->photo)) {
                 Storage::disk('public')->delete($p->photo);
@@ -281,18 +402,11 @@ class PortivaController extends Controller
             $p->delete();
         }
 
-        // Hapus avatar jika ada
         if (!empty($user->avatar) && Storage::disk('public')->exists($user->avatar)) {
             Storage::disk('public')->delete($user->avatar);
         }
 
-        // Hapus user
         $user->delete();
-
-        // Logout
-        Session::flush();
-
-        return redirect('/')->with('success', 'Akun berhasil dihapus permanen.');
     }
 
     public function logout()

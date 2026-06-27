@@ -24,13 +24,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const sendForm = async (form, url, method) => {
     const formData = new FormData(form);
     const httpMethod = (method || form.getAttribute('method') || 'POST').toUpperCase();
+    const requestMethod = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(httpMethod) ? httpMethod : 'POST';
 
     if (httpMethod !== 'POST') {
       formData.set('_method', httpMethod);
     }
 
     const response = await fetch(url, {
-      method: 'POST',
+      method: requestMethod,
       headers: {
         'X-CSRF-TOKEN': csrfToken,
         'X-Requested-With': 'XMLHttpRequest',

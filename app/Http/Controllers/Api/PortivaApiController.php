@@ -5,87 +5,94 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Portfolio;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 
 class PortivaApiController extends Controller
 {
     public function store(Request $request)
     {
-        $this->ensureLoggedIn();
+        $loginResponse = $this->ensureLoggedIn();
+        if ($loginResponse instanceof JsonResponse) {
+            return $loginResponse;
+        }
 
-        $data = $this->validatePortfolio($request);
-        $portfolio = $this->savePortfolio($request, $data);
+        $validation = $this->validatePortfolio($request);
+        if ($validation instanceof JsonResponse) {
+            return $validation;
+        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Data portfolio berhasil disimpan.',
-            'data' => $this->formatPortfolio($portfolio->load('user')),
-            'redirect_to' => '/portofolio?template=' . ($portfolio->template + 1),
-        ]);
+        $portfolio = $this->savePortfolio($request, $validation);
+        if ($portfolio instanceof JsonResponse) {
+            return $portfolio;
+        }
+
+        return $this->successResponse(
+            'Data portfolio berhasil disimpan.',
+            $this->formatPortfolio($portfolio->load('user')),
+            '/portofolio?template=' . ($portfolio->template + 1),
+        );
     }
 
     public function update(Request $request, int $id)
     {
-        $this->ensureLoggedIn();
+        $loginResponse = $this->ensureLoggedIn();
+        if ($loginResponse instanceof JsonResponse) {
+            return $loginResponse;
+        }
 
         if (!Schema::hasTable('portfolios')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tabel portfolios belum tersedia.',
-            ], 404);
+            return $this->errorResponse('Tabel portfolios belum tersedia.', 404);
         }
 
         $portfolio = Portfolio::find($id);
 
         if (!$portfolio || !$this->canManagePortfolio($portfolio)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Portfolio tidak ditemukan atau Anda tidak memiliki akses.',
-            ], 404);
+            return $this->errorResponse('Portfolio tidak ditemukan atau Anda tidak memiliki akses.', 404);
         }
 
-        $data = $this->validatePortfolio($request);
-        $portfolio = $this->savePortfolio($request, $data, $portfolio);
+        $validation = $this->validatePortfolio($request);
+        if ($validation instanceof JsonResponse) {
+            return $validation;
+        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Data portfolio berhasil diperbarui.',
-            'data' => $this->formatPortfolio($portfolio->load('user')),
-            'redirect_to' => '/portofolio?template=' . ($portfolio->template + 1),
-        ]);
+        $portfolio = $this->savePortfolio($request, $validation, $portfolio);
+        if ($portfolio instanceof JsonResponse) {
+            return $portfolio;
+        }
+
+        return $this->successResponse(
+            'Data portfolio berhasil diperbarui.',
+            $this->formatPortfolio($portfolio->load('user')),
+            '/portofolio?template=' . ($portfolio->template + 1),
+        );
     }
 
     public function destroy(int $id)
     {
-        $this->ensureLoggedIn();
+        $loginResponse = $this->ensureLoggedIn();
+        if ($loginResponse instanceof JsonResponse) {
+            return $loginResponse;
+        }
 
         if (!Schema::hasTable('portfolios')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tabel portfolios belum tersedia.',
-            ], 404);
+            return $this->errorResponse('Tabel portfolios belum tersedia.', 404);
         }
 
         $portfolio = Portfolio::find($id);
 
         if (!$portfolio || !$this->canManagePortfolio($portfolio)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Portfolio tidak ditemukan atau Anda tidak memiliki akses.',
-            ], 404);
+            return $this->errorResponse('Portfolio tidak ditemukan atau Anda tidak memiliki akses.', 404);
         }
 
         $this->deletePortfolioPhoto($portfolio->photo);
         $portfolio->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Portfolio berhasil dihapus.',
-            'redirect_to' => '/akun',
-        ]);
+        return $this->successResponse('Portfolio berhasil dihapus.', null, '/akun');
     }
 
     public function profiles()
@@ -94,43 +101,28 @@ class PortivaApiController extends Controller
             ? Portfolio::with('user')->latest()->get()
             : collect();
 
-        return response()->json([
-            'success' => true,
-            'data' => $profiles->map(fn (Portfolio $portfolio) => $this->formatPortfolio($portfolio)),
-        ]);
+        return $this->successResponse('Daftar profil berhasil dimuat.', $profiles->map(fn (Portfolio $portfolio) => $this->formatPortfolio($portfolio)));
     }
 
     public function show(int $id)
     {
         if (!Schema::hasTable('portfolios')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tabel portfolios belum tersedia.',
-            ], 404);
+            return $this->errorResponse('Tabel portfolios belum tersedia.', 404);
         }
 
         $portfolio = Portfolio::with('user')->find($id);
 
         if (!$portfolio) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Portfolio tidak ditemukan.',
-            ], 404);
+            return $this->errorResponse('Portfolio tidak ditemukan.', 404);
         }
 
-        return response()->json([
-            'success' => true,
-            'data' => $this->formatPortfolio($portfolio),
-        ]);
+        return $this->successResponse('Detail portfolio berhasil dimuat.', $this->formatPortfolio($portfolio));
     }
 
     public function account()
     {
         if (!Session::has('user') && !Session::has('admin')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Silakan login terlebih dahulu.',
-            ], 401);
+            return $this->errorResponse('Silakan login terlebih dahulu.', 401);
         }
 
         $user = Session::has('admin')
@@ -149,40 +141,35 @@ class PortivaApiController extends Controller
                 : Portfolio::with('user')->where('user_id', $user?->id)->latest()->get())
             : collect();
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'user' => $this->formatUser($user),
-                'profiles' => $profiles->map(fn (Portfolio $portfolio) => $this->formatPortfolio($portfolio)),
-            ],
+        return $this->successResponse('Informasi akun berhasil dimuat.', [
+            'user' => $this->formatUser($user),
+            'profiles' => $profiles->map(fn (Portfolio $portfolio) => $this->formatPortfolio($portfolio)),
         ]);
     }
 
     public function users()
     {
         if (!Session::has('admin')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Hanya admin yang dapat mengakses data pengguna.',
-            ], 403);
+            return $this->errorResponse('Hanya admin yang dapat mengakses data pengguna.', 403);
         }
 
         $users = User::orderByDesc('created_at')->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => $users->map(fn (User $user) => $this->formatUser($user)),
-        ]);
+        return $this->successResponse('Daftar pengguna berhasil dimuat.', $users->map(fn (User $user) => $this->formatUser($user)));
     }
 
-    private function ensureLoggedIn(): void
+    private function ensureLoggedIn(): ?JsonResponse
     {
-        abort_unless(Session::has('user') || Session::has('admin'), 401, 'Silakan login terlebih dahulu.');
+        if (Session::has('user') || Session::has('admin')) {
+            return null;
+        }
+
+        return $this->errorResponse('Silakan login terlebih dahulu.', 401);
     }
 
-    private function validatePortfolio(Request $request): array
+    private function validatePortfolio(Request $request): array|JsonResponse
     {
-        return $request->validate([
+        $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'profession' => 'required|string|max:255',
             'about' => 'required|string',
@@ -192,14 +179,20 @@ class PortivaApiController extends Controller
             'template' => 'nullable|integer',
             'photo' => 'nullable|image|max:2048',
         ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse('Validasi gagal.', 422, $validator->errors()->toArray());
+        }
+
+        return $validator->validated();
     }
 
-    private function savePortfolio(Request $request, array $data, ?Portfolio $portfolio = null): Portfolio
+    private function savePortfolio(Request $request, array $data, ?Portfolio $portfolio = null): Portfolio|JsonResponse
     {
         $userId = Session::get('user');
 
         if (!$userId) {
-            abort(401, 'Login dibutuhkan untuk menyimpan portfolio.');
+            return $this->errorResponse('Login dibutuhkan untuk menyimpan portfolio.', 401);
         }
 
         $template = (int) ($data['template'] ?? $portfolio?->template ?? 1);
@@ -252,6 +245,25 @@ class PortivaApiController extends Controller
         if ($photoPath && Storage::disk('public')->exists($photoPath)) {
             Storage::disk('public')->delete($photoPath);
         }
+    }
+
+    private function successResponse(string $message, mixed $data = null, ?string $redirectTo = null): JsonResponse
+    {
+        return response()->json(array_filter([
+            'success' => true,
+            'message' => $message,
+            'data' => $data,
+            'redirect_to' => $redirectTo,
+        ], static fn ($value) => $value !== null), 200);
+    }
+
+    private function errorResponse(string $message, int $status = 422, array $errors = []): JsonResponse
+    {
+        return response()->json(array_filter([
+            'success' => false,
+            'message' => $message,
+            'errors' => $errors ?: null,
+        ], static fn ($value) => $value !== null), $status);
     }
 
     private function formatPortfolio(Portfolio $portfolio): array

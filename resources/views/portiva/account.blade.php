@@ -139,6 +139,13 @@
           </div>
           <p class="text-slate-200 text-sm mt-3">Role: {{ ucfirst($item->role ?? 'user') }}</p>
           <p class="text-slate-400 text-xs mt-1">Terdaftar: {{ $item->created_at->format('d M Y') }}</p>
+          @if($item->id !== auth()->id())
+            <form method="POST" action="{{ route('portiva.account.delete.admin', $item->id) }}" class="mt-4">
+              @csrf
+              @method('DELETE')
+              <button type="submit" class="rounded-full border border-rose-400 px-3 py-2 text-sm text-rose-100 hover:bg-rose-500/10">Hapus Akun</button>
+            </form>
+          @endif
         </article>
       @endforeach
     </div>
